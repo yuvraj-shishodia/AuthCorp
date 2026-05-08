@@ -1,0 +1,85 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # AuthCorp Services
+  - job_name: 'ingest-service'
+    static_configs:
+      - targets: ['ingest-service:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'fusion-service'
+    static_configs:
+      - targets: ['fusion-service:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'detector-ela'
+    static_configs:
+      - targets: ['detector-ela:8003']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'detector-metadata'
+    static_configs:
+      - targets: ['detector-metadata:8004']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'ocr-service'
+    static_configs:
+      - targets: ['ocr-service:8005']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'risk-service'
+    static_configs:
+      - targets: ['risk-service:8006']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'report-service'
+    static_configs:
+      - targets: ['report-service:8007']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:8009']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Node Exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # Redis Exporter
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+
+  # PostgreSQL Exporter (if using PostgreSQL)
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 15s

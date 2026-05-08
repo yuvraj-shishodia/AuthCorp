@@ -1,0 +1,273 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --page-bg: #0a0f1f;
+  --page-fg: 249 250 251;
+  --cyber-bg-start: #070b13;
+  --cyber-bg-mid: #0a1229;
+  --cyber-bg-end: #0a0f1f;
+  --neon-cyan: #00fff0;
+  --neon-blue: #38bdf8;
+  --neon-pink: #ff00ea;
+  --neon-green: #00ff88;
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.12);
+}
+
+.light {
+  --page-bg: #0a0f1f;
+  --page-fg: 249 250 251;
+  --cyber-bg-start: #ffffff;
+  --cyber-bg-mid: #f8fafc;
+  --cyber-bg-end: #f1f5f9;
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(15, 23, 42, 0.12);
+}
+
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+    background-color: var(--page-bg);
+    color: rgb(var(--page-fg));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  .mobile-container {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+
+  .mobile-grid {
+    @apply grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+  }
+
+  .mobile-text {
+    @apply text-sm sm:text-base lg:text-lg;
+  }
+
+  .mobile-button {
+    @apply px-3 py-2 text-sm sm:px-4 sm:py-2 sm:text-base;
+  }
+
+  .mobile-card {
+    @apply rounded-lg p-4 sm:rounded-xl sm:p-6;
+  }
+
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.15);
+  }
+
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-gray-200/50 dark:bg-white/10 dark:border-white/20;
+  }
+
+  .glass-dark {
+    @apply bg-gray-900/80 backdrop-blur-md border border-gray-700/50 dark:bg-black/10 dark:border-white/10;
+  }
+
+  .neon-border {
+    box-shadow:
+      0 0 0 1px rgba(0, 255, 240, 0.18),
+      inset 0 0 20px rgba(0, 255, 240, 0.1),
+      0 0 24px rgba(0, 255, 240, 0.18);
+  }
+
+  .neon-text {
+    color: var(--neon-cyan);
+  }
+
+  .btn-cyber {
+    @apply inline-flex items-center gap-2 rounded-lg px-5 py-2.5 font-medium transition-all;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+  }
+
+  .btn-cyber:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .btn-primary {
+    @apply rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors duration-200 hover:bg-blue-700;
+  }
+
+  .btn-secondary {
+    @apply rounded-lg bg-gray-200 px-4 py-2 font-medium text-gray-800 transition-colors duration-200 hover:bg-gray-300;
+  }
+
+  .btn-danger {
+    @apply rounded-lg bg-red-600 px-4 py-2 font-medium text-white transition-colors duration-200 hover:bg-red-700;
+  }
+
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800;
+  }
+
+  .card-forensic {
+    @apply card border-2 border-cyan-400/30 shadow-[0_0_40px_rgba(56,189,248,0.12)];
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-800;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-gray-300 dark:bg-gray-600;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-500;
+  }
+
+  .forensic-scan {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .forensic-scan::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.3), transparent);
+    animation: scan 2s linear infinite;
+  }
+
+  .glow-authentic {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  }
+
+  .glow-tamper {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+  }
+
+  .glow-suspicious {
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.4);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .cyber-bg {
+    background-color: var(--page-bg);
+    background:
+      radial-gradient(800px circle at 12% 10%, rgba(0, 255, 240, 0.06), transparent 40%),
+      radial-gradient(900px circle at 80% 15%, rgba(255, 0, 234, 0.05), transparent 42%),
+      linear-gradient(180deg, var(--cyber-bg-end), var(--cyber-bg-end));
+    min-height: 100dvh;
+    position: relative;
+    isolation: isolate;
+  }
+
+  .light .cyber-bg {
+    background-color: #ffffff;
+    background:
+      radial-gradient(800px circle at 12% 10%, rgba(56, 189, 248, 0.04), transparent 40%),
+      radial-gradient(900px circle at 80% 15%, rgba(255, 0, 234, 0.02), transparent 42%),
+      linear-gradient(180deg, #ffffff, #f8fafc);
+  }
+
+  .cyber-bg::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px, 24px 24px;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .light .cyber-bg::before {
+    background-image: linear-gradient(rgba(15, 23, 42, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 23, 42, 0.02) 1px, transparent 1px);
+  }
+
+  .dark {
+    background-color: var(--cyber-bg-end);
+    color: rgb(var(--page-fg));
+  }
+
+  .dark .bg-background {
+    background-color: rgb(var(--background));
+  }
+
+  .dark .bg-card {
+    background-color: rgb(var(--card));
+  }
+
+  .dark .text-foreground {
+    color: rgb(var(--foreground));
+  }
+
+  .dark .border-border {
+    border-color: rgb(var(--border));
+  }
+}
+
+@keyframes pulse-forensic {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes matrix-rain {
+  0% {
+    transform: translateY(-100vh);
+  }
+
+  100% {
+    transform: translateY(100vh);
+  }
+}
+
+@keyframes scan {
+  0% {
+    left: -100%;
+  }
+
+  100% {
+    left: 100%;
+  }
+}
+
+.animate-pulse-forensic {
+  animation: pulse-forensic 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-matrix-rain {
+  animation: matrix-rain 3s linear infinite;
+}

@@ -1,0 +1,146 @@
+groups:
+  - name: authcorp_alerts
+    rules:
+      # Service Health Alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Service {{ $labels.job }} has error rate above 10% for 2 minutes."
+
+      # Performance Alerts
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time detected"
+          description: "Service {{ $labels.job }} 95th percentile response time is above 2 seconds."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 90% for more than 5 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is above 80% for more than 5 minutes."
+
+      # Redis Alerts
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance has been down for more than 1 minute."
+
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is above 90% for more than 5 minutes."
+
+      # Application Specific Alerts
+      - alert: HighDetectionQueue
+        expr: redis_list_length{key="detection_queue"} > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High detection queue length"
+          description: "Detection queue has more than 100 pending items."
+
+      - alert: LowDetectionAccuracy
+        expr: avg(detection_accuracy) < 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low detection accuracy"
+          description: "Average detection accuracy is below 80% for 10 minutes."
+
+      - alert: HighFalsePositiveRate
+        expr: rate(false_positives_total[10m]) > 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High false positive rate"
+          description: "False positive rate is above 15% for 5 minutes."
+
+      - alert: HighFalseNegativeRate
+        expr: rate(false_negatives_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High false negative rate"
+          description: "False negative rate is above 10% for 5 minutes."
+
+      # Security Alerts
+      - alert: HighAuthFailureRate
+        expr: rate(auth_failures_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failure rate is above 5% for 2 minutes."
+
+      - alert: SuspiciousActivityDetected
+        expr: increase(suspicious_activities_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Suspicious activity detected"
+          description: "More than 10 suspicious activities detected in the last 5 minutes."
+
+  - name: infrastructure_alerts
+    rules:
+      # Disk Space Alerts
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 10% for more than 5 minutes."
+
+      # Network Alerts
+      - alert: HighNetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High network errors"
+          description: "Network receive errors are above 100 per second for 5 minutes."
