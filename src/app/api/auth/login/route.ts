@@ -6,6 +6,7 @@ import { loginSchema, validate } from '@/lib/validation'
 type UserRecord = {
   id: string
   email: string
+  username?: string
   password: string
   name: string
   role: 'admin' | 'investigator' | 'analyst'
@@ -70,16 +71,22 @@ function loadUsersFromEnv(): UserRecord[] {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((user: any) =>
-      user &&
-      typeof user.id === 'string' &&
-      typeof user.email === 'string' &&
-      typeof user.password === 'string' &&
-      typeof user.name === 'string' &&
-      typeof user.role === 'string' &&
-      Array.isArray(user.permissions) &&
-      typeof user.organization === 'string'
-    )
+    return parsed
+      .filter((user: any) =>
+        user &&
+        typeof user.id === 'string' &&
+        typeof user.email === 'string' &&
+        typeof user.password === 'string' &&
+        typeof user.name === 'string' &&
+        typeof user.role === 'string' &&
+        Array.isArray(user.permissions) &&
+        typeof user.organization === 'string'
+      )
+      .map((user: UserRecord) => ({
+        ...user,
+        // Allow docker-compose escaped bcrypt hashes (e.g. $$2a$$12$$...) in env files.
+        password: user.password.replace(/\$\$/g, '$'),
+      }))
   } catch {
     return []
   }
@@ -111,8 +118,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, password } = validated.data
+    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedPassword = password.trim()
     const now = Date.now()
-    const rateLimitKey = getRateLimitKey(clientIp, email)
+    const rateLimitKey = getRateLimitKey(clientIp, normalizedEmail)
 
     if (isRateLimited(rateLimitKey, now)) {
       return NextResponse.json(
@@ -133,14 +142,18 @@ export async function POST(request: NextRequest) {
     // Already handled by schema
 
     // Find user
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase())
+    const user = users.find((u) => {
+      const userEmail = u.email.trim().toLowerCase()
+      const userName = (u.username || '').trim().toLowerCase()
+      return userEmail === normalizedEmail || userName === normalizedEmail
+    })
     if (!user) {
       recordFailedAttempt(rateLimitKey, now)
       await AuditLogger.logAction({
         userId: 'anonymous',
         action: 'login_attempt_failed',
         resource: 'auth',
-        details: { reason: 'user_not_found', email },
+        details: { reason: 'user_not_found', email: normalizedEmail },
         ipAddress: clientIp,
         userAgent,
         riskLevel: 'medium'
@@ -153,14 +166,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password)
+    const isValidPassword = await bcrypt.compare(normalizedPassword, user.password)
     if (!isValidPassword) {
       recordFailedAttempt(rateLimitKey, now)
       await AuditLogger.logAction({
         userId: user.id,
         action: 'login_attempt_failed',
         resource: 'auth',
-        details: { reason: 'invalid_password', email },
+        details: { reason: 'invalid_password', email: normalizedEmail },
         ipAddress: clientIp,
         userAgent,
         riskLevel: 'high'
@@ -189,7 +202,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       action: 'login_successful',
       resource: 'auth',
-      details: { email, role: user.role },
+      details: { email: normalizedEmail, role: user.role },
       ipAddress: clientIp,
       userAgent,
       riskLevel: 'low'
