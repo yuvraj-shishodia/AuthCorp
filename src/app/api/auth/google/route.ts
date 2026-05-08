@@ -5,17 +5,64 @@ import { googleTokenSchema, validate } from '@/lib/validation'
 // Simple in-memory store of known Google accounts
 // In production replace with real DB lookup
 const knownGoogleAccounts = new Map<string, { id: string; email: string; name: string; role: string; permissions: string[]; organization: string; avatar?: string }>()
+const googleLoginAttempts = new Map<string, { count: number; firstMs: number; blockedUntilMs: number }>()
+const GOOGLE_WINDOW_MS = 15 * 60 * 1000
+const GOOGLE_MAX_ATTEMPTS = 10
+const GOOGLE_BLOCK_MS = 15 * 60 * 1000
+
+function getClientIp(request: NextRequest) {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+}
+
+function parseCsvSet(value: string | undefined) {
+  return new Set(
+    (value || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  )
+}
+
+function isGoogleRateLimited(key: string, now: number) {
+  const entry = googleLoginAttempts.get(key)
+  if (!entry) return false
+  return entry.blockedUntilMs > now
+}
+
+function recordGoogleFailure(key: string, now: number) {
+  const current = googleLoginAttempts.get(key)
+  if (!current || now - current.firstMs > GOOGLE_WINDOW_MS) {
+    googleLoginAttempts.set(key, { count: 1, firstMs: now, blockedUntilMs: 0 })
+    return
+  }
+
+  const count = current.count + 1
+  googleLoginAttempts.set(key, {
+    count,
+    firstMs: current.firstMs,
+    blockedUntilMs: count >= GOOGLE_MAX_ATTEMPTS ? now + GOOGLE_BLOCK_MS : 0,
+  })
+}
+
+function clearGoogleFailures(key: string) {
+  googleLoginAttempts.delete(key)
+}
 
 export async function POST(request: NextRequest) {
   try {
     const isProduction = process.env.NODE_ENV === 'production'
     const body = await request.json()
     const validated = validate(googleTokenSchema, body)
-    const clientIp = request.headers.get('x-forwarded-for') || 'unknown'
+    const clientIp = getClientIp(request)
     const userAgent = request.headers.get('user-agent') || 'unknown'
+    const rateKey = `${clientIp}:google`
+    const now = Date.now()
 
     if (!validated.success) {
       return NextResponse.json({ error: 'Invalid input', details: validated.errors }, { status: 400 })
+    }
+    if (isGoogleRateLimited(rateKey, now)) {
+      return NextResponse.json({ error: 'Too many login attempts. Try again later.' }, { status: 429 })
     }
 
     const { token } = validated.data
@@ -25,6 +72,7 @@ export async function POST(request: NextRequest) {
     )
 
     if (!googleResponse.ok) {
+      recordGoogleFailure(rateKey, now)
       await AuditLogger.logAction({
         userId: 'anonymous',
         action: 'google_login_failed',
@@ -41,7 +89,20 @@ export async function POST(request: NextRequest) {
     const email = googleUser.email?.toLowerCase()
 
     if (!email) {
+      recordGoogleFailure(rateKey, now)
       return NextResponse.json({ error: 'Could not retrieve email from Google' }, { status: 400 })
+    }
+
+    const allowedEmails = parseCsvSet(process.env.AUTH_ALLOWED_GOOGLE_EMAILS)
+    const allowedDomains = parseCsvSet(process.env.AUTH_ALLOWED_GOOGLE_DOMAINS)
+    const domain = email.includes('@') ? email.split('@')[1] : ''
+
+    const explicitlyAllowed = allowedEmails.has(email)
+    const domainAllowed = Boolean(domain) && allowedDomains.has(domain)
+    const allowAnyGoogle = String(process.env.AUTH_ALLOW_ANY_GOOGLE_USER || '').toLowerCase() === 'true'
+    if (!allowAnyGoogle && !explicitlyAllowed && !domainAllowed) {
+      recordGoogleFailure(rateKey, now)
+      return NextResponse.json({ error: 'Google account is not authorized for this application' }, { status: 403 })
     }
 
     // Check if this is a sign-up attempt for an already-registered account
@@ -68,6 +129,7 @@ export async function POST(request: NextRequest) {
 
     // Store it
     knownGoogleAccounts.set(email, user)
+    clearGoogleFailures(rateKey)
 
     const tokenPayload = {
       userId: user.id,

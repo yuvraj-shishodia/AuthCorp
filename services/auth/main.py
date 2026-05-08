@@ -58,6 +58,10 @@ except Exception as exc:
 # Redis configuration
 REDIS_URL = require_env("REDIS_URL", default="redis://localhost:6379")
 redis_client = None
+LOGIN_WINDOW_SECONDS = int(os.getenv("AUTH_LOGIN_WINDOW_SECONDS", "900"))
+LOGIN_MAX_ATTEMPTS = int(os.getenv("AUTH_LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_BLOCK_SECONDS = int(os.getenv("AUTH_LOGIN_BLOCK_SECONDS", "900"))
+LOGIN_ATTEMPTS: Dict[str, Dict[str, float]] = {}
 
 # Encryption
 fernet = Fernet(ENCRYPTION_KEY.encode())
@@ -119,42 +123,7 @@ class AuditLog(BaseModel):
     success: bool = True
     details: Dict = {}
 
-# Mock data (replace with database in production)
-USERS_DB = {
-    "admin": {
-        "user_id": "user_001",
-        "username": "admin",
-        "email": "admin@authcorp.com",
-        "password_hash": bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
-        "roles": ["admin", "investigator"],
-        "permissions": ["read", "write", "delete", "admin"],
-        "is_active": True,
-        "created_at": datetime.utcnow(),
-        "last_login": None
-    },
-    "investigator": {
-        "user_id": "user_002",
-        "username": "investigator",
-        "email": "investigator@authcorp.com",
-        "password_hash": bcrypt.hashpw("invest123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
-        "roles": ["investigator"],
-        "permissions": ["read", "write"],
-        "is_active": True,
-        "created_at": datetime.utcnow(),
-        "last_login": None
-    },
-    "analyst": {
-        "user_id": "user_003",
-        "username": "analyst",
-        "email": "analyst@authcorp.com",
-        "password_hash": bcrypt.hashpw("analyst123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
-        "roles": ["analyst"],
-        "permissions": ["read"],
-        "is_active": True,
-        "created_at": datetime.utcnow(),
-        "last_login": None
-    }
-}
+USERS_DB: Dict[str, Dict] = {}
 
 ROLES_DB = {
     "admin": {
@@ -188,6 +157,68 @@ PERMISSIONS_DB = {
     "manage_users": {"permission_id": "perm_008", "name": "manage_users", "resource": "users", "action": "manage"},
     "manage_roles": {"permission_id": "perm_009", "name": "manage_roles", "resource": "roles", "action": "manage"}
 }
+
+
+def load_users_from_env() -> Dict[str, Dict]:
+    raw = os.getenv("AUTH_USERS_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            logger.error("AUTH_USERS_JSON must be a JSON array")
+            return {}
+        users: Dict[str, Dict] = {}
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            username = str(item.get("username", "")).strip()
+            if not username:
+                continue
+            user = {
+                "user_id": str(item.get("user_id", f"user_{username}")),
+                "username": username,
+                "email": str(item.get("email", "")).strip().lower(),
+                "password_hash": str(item.get("password_hash", "")).strip(),
+                "roles": item.get("roles", []),
+                "permissions": item.get("permissions", []),
+                "is_active": bool(item.get("is_active", True)),
+                "created_at": datetime.utcnow(),
+                "last_login": None
+            }
+            if not user["password_hash"] or not user["email"]:
+                continue
+            users[username] = user
+        return users
+    except Exception as exc:
+        logger.error(f"Failed to parse AUTH_USERS_JSON: {exc}")
+        return {}
+
+
+def login_key(ip: str, username: str) -> str:
+    return f"{ip}:{username.lower()}"
+
+
+def is_blocked(key: str, now: float) -> bool:
+    entry = LOGIN_ATTEMPTS.get(key)
+    if not entry:
+        return False
+    return entry.get("blocked_until", 0) > now
+
+
+def record_failed_login(key: str, now: float) -> None:
+    entry = LOGIN_ATTEMPTS.get(key)
+    if not entry or now - entry.get("first_ts", now) > LOGIN_WINDOW_SECONDS:
+        LOGIN_ATTEMPTS[key] = {"count": 1, "first_ts": now, "blocked_until": 0}
+        return
+
+    count = int(entry.get("count", 0)) + 1
+    blocked_until = now + LOGIN_BLOCK_SECONDS if count >= LOGIN_MAX_ATTEMPTS else 0
+    LOGIN_ATTEMPTS[key] = {"count": count, "first_ts": entry["first_ts"], "blocked_until": blocked_until}
+
+
+def clear_failed_login(key: str) -> None:
+    LOGIN_ATTEMPTS.pop(key, None)
 
 async def get_redis_client():
     """Get Redis client with connection pooling"""
@@ -351,9 +382,25 @@ async def log_audit_event(
 async def login(request: LoginRequest, http_request: Request):
     """User login endpoint"""
     try:
+        if not USERS_DB:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication is not configured"
+            )
+
+        client_ip = http_request.client.host if http_request and http_request.client else "unknown"
+        rl_key = login_key(client_ip, request.username)
+        now = time.time()
+        if is_blocked(rl_key, now):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts. Try again later."
+            )
+
         # Find user
         user_data = USERS_DB.get(request.username)
         if not user_data:
+            record_failed_login(rl_key, now)
             await log_audit_event(
                 user_id="unknown",
                 action="login_failed",
@@ -369,6 +416,7 @@ async def login(request: LoginRequest, http_request: Request):
         
         # Verify password
         if not bcrypt.checkpw(request.password.encode('utf-8'), user_data["password_hash"].encode('utf-8')):
+            record_failed_login(rl_key, now)
             await log_audit_event(
                 user_id=user_data["user_id"],
                 action="login_failed",
@@ -381,6 +429,7 @@ async def login(request: LoginRequest, http_request: Request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password"
             )
+        clear_failed_login(rl_key)
         
         # Check if user is active
         if not user_data["is_active"]:
@@ -618,9 +667,12 @@ async def health_check():
         )
 
 # Middleware for CORS
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("AUTH_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -653,6 +705,10 @@ async def security_middleware(request: Request, call_next):
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting AuthCorp Auth Service...")
+    global USERS_DB
+    USERS_DB = load_users_from_env()
+    if not USERS_DB:
+        logger.warning("No auth users loaded from AUTH_USERS_JSON. Login will be unavailable.")
     await get_redis_client()
     logger.info("Auth service started successfully")
 

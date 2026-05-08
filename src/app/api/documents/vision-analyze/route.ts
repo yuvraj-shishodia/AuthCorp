@@ -2,16 +2,36 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { SecurityManager } from '@/lib/security'
 
+const MAX_BASE64_CHARS = 8 * 1024 * 1024
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/tiff', 'application/pdf'])
+
 export async function POST(req: NextRequest) {
   try {
-    // Soft auth check - allow if session exists, continue without if not (for demo)
+    // Enforce session auth
     const session = cookies().get('authcorp_session')?.value
-    if (session) {
-      try { SecurityManager.verifyToken(session) } catch { /* continue */ }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    let user
+    try {
+      user = SecurityManager.verifyToken(session)
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!user?.permissions?.includes('*') && !user?.permissions?.includes('document:analyze')) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
     const { imageBase64, mimeType, filename } = await req.json()
     if (!imageBase64) return NextResponse.json({ error: 'No image provided' }, { status: 400 })
+    if (typeof imageBase64 !== 'string' || imageBase64.length > MAX_BASE64_CHARS) {
+      return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+    }
+    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(imageBase64)) {
+      return NextResponse.json({ error: 'Invalid base64 payload' }, { status: 400 })
+    }
+    const normalizedMimeType = typeof mimeType === 'string' && mimeType.trim() ? mimeType.trim().toLowerCase() : 'image/jpeg'
+    if (!ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
+      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
+    }
 
     const apiKey = process.env.OPENAI_API_KEY?.trim()
     if (!apiKey) return NextResponse.json(generateHeuristicAnalysis(filename))
@@ -183,7 +203,7 @@ IMPORTANT: Be specific. Don't say "document looks authentic" — say WHAT you se
             {
               type: 'image_url',
               image_url: {
-                url: `data:${mimeType || 'image/jpeg'};base64,${imageBase64}`,
+                url: `data:${normalizedMimeType};base64,${imageBase64}`,
                 detail: 'high'
               }
             },

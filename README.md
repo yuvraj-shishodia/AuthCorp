@@ -107,7 +107,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
-**Demo credentials:** `admin@authcorp.com` / `admin123`
+Configure credentials through `AUTH_USERS_JSON` in `.env.local`.
 
 ---
 
@@ -213,13 +213,9 @@ Add all environment variables in Vercel → Project → Settings → Environment
 
 ---
 
-## Demo Credentials
+## Authentication Setup
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@authcorp.com | admin123 |
-| Investigator | investigator@authcorp.com | investigator123 |
-| Analyst | analyst@authcorp.com | analyst123 |
+For local auth, configure `AUTH_USERS_JSON` with bcrypt password hashes. Do not commit plaintext credentials.
 
 Or use **Continue with Google** (after Google OAuth setup).
 

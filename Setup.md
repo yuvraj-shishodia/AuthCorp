@@ -62,7 +62,7 @@ npm run dev
 Open http://localhost:3000
 
 **Demo login credentials:**
-- Email: `admin@authcorp.com` / Password: `admin123`
+- Configure users using `AUTH_USERS_JSON` with bcrypt password hashes before testing login.
 - Or use Google OAuth if configured
 
 ---

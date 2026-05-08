@@ -3,43 +3,94 @@ import bcrypt from 'bcryptjs'
 import { SecurityManager, AuditLogger } from '@/lib/security'
 import { loginSchema, validate } from '@/lib/validation'
 
-// Mock user database
-const users = [
-  {
-    id: '1',
-    email: 'admin@authcorp.com',
-    password: '$2a$12$ocP/GfoKlFTJIyUQNJGmGOnPOQDvpP3n7G.qfqrn0Rwu9eziVLYWy', // 'admin123'
-    name: 'Admin User',
-    role: 'admin' as const,
-    permissions: ['*'],
-    organization: 'AuthCorp Corp'
-  },
-  {
-    id: '2',
-    email: 'investigator@authcorp.com',
-    password: '$2a$12$jEtk6xVa3RO0op4HtVS3julrNwFhBNNXiLrM/.Q8jdbYNmHPpwyhO', // 'investigator123'
-    name: 'John Investigator',
-    role: 'investigator' as const,
-    permissions: ['document:analyze', 'risk:check', 'report:generate'],
-    organization: 'Law Enforcement'
-  },
-  {
-    id: '3',
-    email: 'analyst@authcorp.com',
-    password: '$2a$12$69.Y230ObjSdPzEWiTwfWe/1w/dBTt9Cg6ZP7WwAByX0T0.yPKbAC', // 'analyst123'
-    name: 'Jane Analyst',
-    role: 'analyst' as const,
-    permissions: ['document:analyze', 'report:view'],
-    organization: 'Financial Services'
+type UserRecord = {
+  id: string
+  email: string
+  password: string
+  name: string
+  role: 'admin' | 'investigator' | 'analyst'
+  permissions: string[]
+  organization: string
+}
+
+type LoginAttempt = {
+  count: number
+  firstAttemptMs: number
+  blockedUntilMs: number
+}
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_BLOCK_MS = 15 * 60 * 1000
+const loginAttempts = new Map<string, LoginAttempt>()
+
+function getClientIp(request: NextRequest) {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+}
+
+function getRateLimitKey(ip: string, email: string) {
+  return `${ip}:${email.toLowerCase()}`
+}
+
+function isRateLimited(key: string, now: number) {
+  const entry = loginAttempts.get(key)
+  if (!entry) return false
+  if (entry.blockedUntilMs > now) return true
+  return false
+}
+
+function recordFailedAttempt(key: string, now: number) {
+  const current = loginAttempts.get(key)
+  if (!current || now - current.firstAttemptMs > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, {
+      count: 1,
+      firstAttemptMs: now,
+      blockedUntilMs: 0,
+    })
+    return
   }
-]
+
+  const nextCount = current.count + 1
+  const blockedUntilMs = nextCount >= LOGIN_MAX_ATTEMPTS ? now + LOGIN_BLOCK_MS : 0
+  loginAttempts.set(key, {
+    count: nextCount,
+    firstAttemptMs: current.firstAttemptMs,
+    blockedUntilMs,
+  })
+}
+
+function clearFailedAttempts(key: string) {
+  loginAttempts.delete(key)
+}
+
+function loadUsersFromEnv(): UserRecord[] {
+  const raw = process.env.AUTH_USERS_JSON?.trim()
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((user: any) =>
+      user &&
+      typeof user.id === 'string' &&
+      typeof user.email === 'string' &&
+      typeof user.password === 'string' &&
+      typeof user.name === 'string' &&
+      typeof user.role === 'string' &&
+      Array.isArray(user.permissions) &&
+      typeof user.organization === 'string'
+    )
+  } catch {
+    return []
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     const isProduction = process.env.NODE_ENV === 'production'
     const body = await request.json()
     const validated = validate(loginSchema, body)
-    const clientIp = request.headers.get('x-forwarded-for') || 'unknown'
+    const clientIp = getClientIp(request)
     const userAgent = request.headers.get('user-agent') || 'unknown'
 
     if (!validated.success) {
@@ -60,6 +111,23 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, password } = validated.data
+    const now = Date.now()
+    const rateLimitKey = getRateLimitKey(clientIp, email)
+
+    if (isRateLimited(rateLimitKey, now)) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Try again later.' },
+        { status: 429 }
+      )
+    }
+
+    const users = loadUsersFromEnv()
+    if (users.length === 0) {
+      return NextResponse.json(
+        { error: 'Authentication is not configured' },
+        { status: 503 }
+      )
+    }
 
     // Input validation
     // Already handled by schema
@@ -67,6 +135,7 @@ export async function POST(request: NextRequest) {
     // Find user
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase())
     if (!user) {
+      recordFailedAttempt(rateLimitKey, now)
       await AuditLogger.logAction({
         userId: 'anonymous',
         action: 'login_attempt_failed',
@@ -86,6 +155,7 @@ export async function POST(request: NextRequest) {
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password)
     if (!isValidPassword) {
+      recordFailedAttempt(rateLimitKey, now)
       await AuditLogger.logAction({
         userId: user.id,
         action: 'login_attempt_failed',
@@ -101,6 +171,7 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+    clearFailedAttempts(rateLimitKey)
 
     // Generate JWT token
     const tokenPayload = {

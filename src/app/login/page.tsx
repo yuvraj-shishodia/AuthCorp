@@ -15,12 +15,8 @@ import { useAuth } from '@/components/auth-provider'
 import toast from 'react-hot-toast'
 
 // In-memory store of registered emails (resets on page refresh)
-// In production this would be a real DB check
-const registeredEmails = new Set<string>([
-  'admin@authcorp.com',
-  'investigator@authcorp.com',
-  'analyst@authcorp.com',
-])
+// Only used for UI hints; backend auth controls remain authoritative.
+const registeredEmails = new Set<string>()
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -376,12 +372,11 @@ export default function LoginPage() {
             </div>
           )}
 
-          {process.env.NODE_ENV !== 'production' && (
+          {String(process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS || '').toLowerCase() === 'true' && (
             <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
               <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">Demo Credentials</h4>
               <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                <p><strong>Email:</strong> admin@authcorp.com</p>
-                <p><strong>Password:</strong> admin123</p>
+                <p>Demo credentials are enabled by configuration.</p>
               </div>
             </div>
           )}
